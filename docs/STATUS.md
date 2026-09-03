@@ -2,6 +2,12 @@
 
 Canonical next-agent context: **[docs/HANDOFF.md](./HANDOFF.md)**.
 
-Backend is a thin FastAPI shell: `/api/health`, `/api/examples`, and `POST /api/run/stream` (SSE stage/token/clarify/done). The Vite chat UI is wired to it end to end. `app/agents.py:run()` is still a placeholder — matching and ranking are the next work.
+Updated: 2026-09-04.
 
-Tests: `cd backend && .venv/bin/pytest -q` (7 passed)
+Phase 1 publisher recommendation is shipped. Entry is `app.agents.run()` → LangGraph in `graph.py` → existing SSE in `main.py`. Do not implement matching in `agents.py`.
+
+Pipeline: query → understand (LLM or heuristic) → `retrieve_all()` + `pool_size` slice → deterministic rank (`score` ≠ `confidence`) → reason (copy only).
+
+Tests: `cd backend && .venv/bin/pytest -q` — **45 passed** (includes `test_reason.py`). Chat reply is compact bullets from `render_text()`; `App.tsx` renders each line (not `whitespace-pre-wrap`). Frontend `npm run build` exit 0.
+
+Personas (`shopper_personas.json`) stay on disk. Do not start them unless the user asks. Do not commit unless they ask. Do not spawn orc unless asked.
