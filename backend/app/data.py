@@ -15,10 +15,6 @@ def load_publishers() -> list[dict]:
     return json.loads((_DATA / "publishers.json").read_text())
 
 
-def load_personas() -> list[dict]:
-    return json.loads((_DATA / "shopper_personas.json").read_text())
-
-
 def load_examples() -> list[str]:
     lines = (_DATA / "example_advertisers.txt").read_text().splitlines()
     return [m.group(1).strip() for m in map(_EXAMPLE.match, lines) if m]

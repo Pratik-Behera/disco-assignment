@@ -32,6 +32,7 @@ def _load_env() -> None:
         os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
 
 
+# LLM and LangSmith env is read on first graph invoke, so loading here is early enough.
 _load_env()
 
 log = logging.getLogger(__name__)
@@ -80,6 +81,10 @@ def create_app() -> FastAPI:
             "ok": True,
             "publishers": len(app.state.publishers),
             "llm": bool(os.environ.get("LLM_API_KEY")),
+            "langsmith": (
+                os.environ.get("LANGSMITH_TRACING", "").lower() in {"1", "true", "yes"}
+                and bool(os.environ.get("LANGSMITH_API_KEY"))
+            ),
         }
 
     @app.get("/api/examples")

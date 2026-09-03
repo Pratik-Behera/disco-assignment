@@ -1,17 +1,10 @@
-"""
-Agent logic lives here.
-
-Flow you probably want:
-  1. Understand the advertiser query (clarify if too vague).
-  2. Filter publishers from catalog (Python — don't let the LLM invent matches).
-  3. Reasoner picks from filtered list or says no fit.
-
-Replace `run()` below; main.py only streams whatever this returns.
-"""
+"""Phase 1 entry: understand → retrieve → rank → reason."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+
+from app.graph import get_graph
 
 
 @dataclass
@@ -24,17 +17,11 @@ class AgentResult:
 
 
 def run(user_text: str, *, clarification: str | None = None) -> AgentResult:
-    query = user_text.strip()
-    if clarification:
-        query = f"{query}\n\nClarification: {clarification.strip()}"
-
-    # ponytail: placeholder until you wire orchestrator + reasoner
-    if clarification is None and len(query.split()) < 5:
-        return AgentResult(
-            question="What product or product family are you advertising?"
-        )
-
-    return AgentResult(
-        text="Backend reset — implement matching in app/agents.py → run().",
-        chosen=[],
-    )
+    state = get_graph().invoke({"raw_query": user_text, "clarification": clarification})
+    if (
+        state.get("status") == "insufficient_signal"
+        and not clarification
+        and state.get("question")
+    ):
+        return AgentResult(question=state["question"])
+    return AgentResult(text=state.get("text") or "", chosen=state.get("chosen") or [])
