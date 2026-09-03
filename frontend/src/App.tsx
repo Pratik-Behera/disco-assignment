@@ -190,10 +190,26 @@ function MessageBubble({ message }: { message: ChatMessage }) {
   if (message.role === "error") {
     return <p className="mb-6 text-sm text-red-400">{message.text}</p>;
   }
+  const lines = message.text.split("\n");
   return (
-    <div className="fade-in mb-8 max-w-[90%] text-sm leading-7 text-[#ececec] whitespace-pre-wrap">
-      {message.text}
-      {message.streaming ? <span className="caret" aria-hidden /> : null}
+    <div className="fade-in mb-6 max-w-[90%] text-sm leading-5 text-[#ececec]">
+      {lines.map((line, i) => {
+        const last = i === lines.length - 1;
+        const extra =
+          line === "Near misses" || line.startsWith("Remaining ")
+            ? " mt-2 text-[#b4b4b4]"
+            : line.startsWith("• ")
+              ? " pl-2"
+              : line.includes(" — ")
+                ? " font-medium"
+                : "";
+        return (
+          <div key={i} className={`m-0${extra}`}>
+            {line}
+            {last && message.streaming ? <span className="caret" aria-hidden /> : null}
+          </div>
+        );
+      })}
     </div>
   );
 }
