@@ -156,6 +156,9 @@ def render_text(
     for rec in recommendations:
         item = reasons.get(rec.publisher_id)
         headline = item.headline if item else f"{rec.publisher_name} — {_strength_label(rec)}"
+        if " — " in headline and not headline.startswith("**"):
+            name, _, rest = headline.partition(" — ")
+            headline = f"**{name}** — {rest}"
         why = _one_line(item.why if item else rec.evidence.category_match)
         caveat = _one_line(item.caveat) if item and item.caveat else ""
         if caveat.startswith("No advertiser audience"):
@@ -166,7 +169,7 @@ def render_text(
             lines.append(f"• Caveat: {caveat}")
 
     if reasoning.near_misses:
-        lines.append("Near misses")
+        lines.append("**Near misses**")
         for miss in reasoning.near_misses:
             expl = _one_line(miss.explanation)
             if expl.lower().startswith(miss.publisher_name.lower()):

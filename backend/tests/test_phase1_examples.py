@@ -57,7 +57,7 @@ def test_single_malt_run_mentions_swiftcart_and_groups_the_rest() -> None:
         r"I left the rest of the catalog out — \d+ are a different category, \d+ are only a weak or indirect match\.",
         text,
     )
-    assert "\n\n" not in text
+    assert "\n\n" not in (result.publishers_text or "")
     assert "• " in text
     assert text.lower().count("no assortment") <= 1
 

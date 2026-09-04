@@ -7,6 +7,7 @@ import re
 
 from app.data import load_publishers
 from app.llm import llm_enabled, load_prompt, parse_structured
+from app.personas import speak_as
 from app.schemas import AdvertiserProfile, MissingQuestion, PersonaMatch
 from pydantic import BaseModel, Field
 
@@ -14,6 +15,10 @@ log = logging.getLogger(__name__)
 
 _AUDIENCE_MARK = re.compile(
     r"\b(senior|women|woman|men|kids|parent|owners?|gifts?|gifting|health-?conscious)\b",
+    re.I,
+)
+_ESCAPE_PRODUCT = re.compile(
+    r"^(something else|something different|other|none of (these|those)|not listed|not sure|idk)$",
     re.I,
 )
 
@@ -47,7 +52,7 @@ def analyze_missing(
         )
         if parsed.importance != "required" or parsed.field in skipped or parsed.field in asked:
             return heuristic
-        replies = parsed.quick_replies or heuristic.quick_replies
+        replies = [row for row in (parsed.quick_replies or heuristic.quick_replies) if not is_escape_product(row)]
         return MissingQuestion(
             field=parsed.field or "product",
             importance="required",
@@ -68,7 +73,7 @@ def audience_question(
     skipped_fields: list[str] | None = None,
     asked_fields: list[str] | None = None,
 ) -> MissingQuestion | None:
-    """Useful shopper pick, after personas exist. Chips are matched persona names."""
+    """Useful shopper rewrite, after ads exist. Chips are paraphrases, not catalog names."""
     skipped = set(skipped_fields or [])
     asked = set(asked_fields or [])
     if "target_audience" in skipped or "target_audience" in asked:
@@ -80,17 +85,17 @@ def audience_question(
     replies = []
     preferred = [row for row in matches if "category overlap" in row.match_signals]
     for row in preferred or matches:
-        label = row.persona_name.removeprefix("The ").strip()
+        label = speak_as(row.persona_id, row.persona_name.removeprefix("The ").strip())
         if label and label not in replies:
             replies.append(label)
         if len(replies) >= 4:
             break
     if not replies:
-        replies = ["Broad audience"]
+        replies = ["Keep it broad"]
     return MissingQuestion(
         field="target_audience",
         importance="useful",
-        question="Which shoppers should the ads speak to first?",
+        question="Want these ads aimed at someone else, or shall we plan the campaign?",
         quick_replies=replies,
         allow_free_text=True,
         allow_skip=True,
@@ -112,19 +117,36 @@ def _has_audience_signal(profile: AdvertiserProfile) -> bool:
     return bool(_AUDIENCE_MARK.search(blob))
 
 
+def is_escape_product(value: str) -> bool:
+    """Chip/text that means 'none of these' — not a product name to rank."""
+    return bool(_ESCAPE_PRODUCT.match((value or "").strip().strip(".")))
+
+
+def _usable_product(profile: AdvertiserProfile) -> bool:
+    if profile.category:
+        return True
+    product = (profile.product or "").strip()
+    return bool(product) and not is_escape_product(product)
+
+
 def _required_heuristic(
     profile: AdvertiserProfile,
     skipped: set[str],
     asked: set[str],
 ) -> MissingQuestion | None:
-    if "product" in skipped or "product" in asked:
+    if "product" in skipped:
         return None
-    if profile.product or profile.category:
+    if _usable_product(profile):
         return None
+    question = (
+        "I need the actual product — what do you sell?"
+        if "product" in asked
+        else "What product or product family are you advertising?"
+    )
     return MissingQuestion(
         field="product",
         importance="required",
-        question="What product or product family are you advertising?",
+        question=question,
         quick_replies=_product_replies(),
         allow_free_text=True,
         allow_skip=False,

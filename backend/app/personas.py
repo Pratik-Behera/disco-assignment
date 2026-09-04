@@ -21,6 +21,20 @@ PERSONA_WEIGHTS = {
 TOP_PERSONAS = 5
 _GIFT_MARK = re.compile(r"\bgifts?\b|\bgifting\b", re.I)
 
+# Chip / prose labels. Matching still keys on persona_id, never these strings.
+PERSONA_SPEAK = {
+    "persona_001": "People who treat health like a system",
+    "persona_002": "Busy parents",
+    "persona_003": "Younger shoppers who buy on look",
+    "persona_004": "Pet owners who treat pets like family",
+    "persona_005": "Shoppers who pay for things that last",
+    "persona_006": "Shoppers who buy on footprint",
+    "persona_007": "Busy shoppers who want it easy",
+    "persona_008": "People hunting a better price",
+    "persona_009": "Shoppers who buy for performance",
+    "persona_010": "People shopping for a gift",
+}
+
 # Bridges advertiser words the persona file does not name (alcohol, whisky).
 _RELATED_AFFINITY = {
     "alcohol": ("gourmet_food", "premium_grocery", "premium_basics"),
@@ -213,15 +227,63 @@ def _age_span(text: str) -> tuple[int, int] | None:
     return None
 
 
+def _gender_token(text: str) -> str:
+    """Female before male: 'male' is a substring of 'female', 'men' of 'women'."""
+    t = text.lower()
+    if "balanced" in t:
+        return "balanced"
+    if "female" in t or "women" in t or t == "woman":
+        return "female"
+    if "male" in t or "men" in t or t == "man":
+        return "male"
+    return ""
+
+
 def _gender_fit(advertiser: str, skew: str) -> float:
-    a = advertiser.lower()
-    s = skew.lower()
-    if "balanced" in s:
+    a, s = _gender_token(advertiser), _gender_token(skew)
+    if "balanced" in (a, s):
         return 0.7
-    if "female" in a and "female" in s:
+    if a and s and a == s:
         return 0.9
-    if "male" in a and "male" in s and "female" not in s:
-        return 0.9
-    if "female" in a and "male" in s and "female" not in s:
+    if a and s and a != s:
         return 0.2
     return 0.55
+
+
+def speak_as(persona_id: str, fallback: str = "") -> str:
+    return PERSONA_SPEAK.get(persona_id) or fallback
+
+
+def prefer_matches(picked: str, matches: list[PersonaMatch]) -> list[PersonaMatch]:
+    needle = picked.strip().lower()
+    if not needle:
+        return matches
+    preferred = [
+        row
+        for row in matches
+        if needle in speak_as(row.persona_id).lower() or needle in row.persona_name.lower()
+    ]
+    if not preferred:
+        return matches
+    rest = [row for row in matches if row not in preferred]
+    return preferred + rest
+
+
+def persona_why(row: PersonaMatch) -> str:
+    if "shopping for gifts" in row.match_signals:
+        return "gifting is already in the brief"
+    for signal in row.match_signals:
+        if signal.startswith("fits "):
+            return "they already shop " + signal.removeprefix("fits ")
+    return "a plausible shopper for this product"
+
+
+def render_personas(matches: list[PersonaMatch]) -> str:
+    if not matches:
+        return ""
+    blocks: list[str] = []
+    for row in matches[:4]:
+        name = row.persona_name or speak_as(row.persona_id)
+        who = speak_as(row.persona_id, row.persona_name)
+        blocks.append(f"{name}\n{who}\n{persona_why(row)}")
+    return "\n\n".join(blocks)

@@ -167,7 +167,10 @@ _PHRASES: list[tuple[re.Pattern[str], dict]] = [
 
 def _price_position(text: str) -> PricePosition:
     amount = _PRICE.search(text)
-    if amount:
+    campaign_money = bool(
+        re.search(r"\b(budget|spend|campaign|over \d+\s*days|for \d+\s*days)\b", text, re.I)
+    )
+    if amount and not campaign_money:
         n = float((amount.group(1) or amount.group(2)).replace(",", ""))
         if n >= 600:
             return "luxury"

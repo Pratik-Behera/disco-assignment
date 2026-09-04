@@ -70,6 +70,7 @@ def test_render_text_compact_copy_remainder_and_near_miss_format() -> None:
     assert "• Pop & Sip — close on the drinks shelf, but not a stronger fit than the names above." in text
     assert lines[-1] == "I left the rest of the catalog out — 12 are a different category, 6 are only a weak or indirect match."
     assert text.lower().count("no assortment") == 1
+    assert "**Swiftcart**" in text
 
 
 def test_render_text_drops_no_advertiser_audience_caveat() -> None:

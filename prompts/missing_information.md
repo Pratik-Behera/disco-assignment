@@ -15,5 +15,6 @@ Rules:
 - Do not ask price, geo, age, or gender just because they are empty.
 - `allow_skip` is true only when importance is useful.
 - `quick_replies` are suggestions, 3–5 short options. The user can still type.
+- Never use "Something else", "Other", or "None of these" as a chip. Those are not products.
 
 Never mention scores, confidence, required/useful, or internal field names in `question`.

@@ -17,8 +17,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from app.agents import iter_run
-from app.agents import run_ads
+from app.agents import iter_run, run_ads, run_campaign
+from app.campaign import is_campaign_revision
 from app.data import load_examples, load_publishers
 from app.llm import llm_enabled
 
@@ -44,6 +44,22 @@ log = logging.getLogger(__name__)
 # Resume then 400s and the client starts over. Move to Redis if that matters.
 _PENDING_MAX = 256
 _pending: OrderedDict[str, dict] = OrderedDict()
+
+
+def _ui_dir() -> Path | None:
+    raw = os.environ.get("DISCO_UI_DIR")
+    path = Path(raw) if raw else Path(__file__).resolve().parents[1] / "static"
+    return path if (path / "index.html").is_file() else None
+
+
+def _mount_ui(app: FastAPI, ui: Path) -> None:
+    # Path operations win over frontend(); do not register GET / when this runs.
+    if hasattr(app, "frontend"):
+        app.frontend("/", directory=ui, fallback="index.html")
+        return
+    from fastapi.staticfiles import StaticFiles
+
+    app.mount("/", StaticFiles(directory=ui, html=True), name="ui")
 
 
 def _sse(event: str, data: dict) -> str:
@@ -73,10 +89,12 @@ def create_app() -> FastAPI:
     )
     app.state.examples = load_examples()
     app.state.publishers = load_publishers()
+    ui = _ui_dir()
+    if ui is None:
 
-    @app.get("/")
-    def root() -> dict[str, str]:
-        return {"service": "disco", "ui": "http://127.0.0.1:5173"}
+        @app.get("/")
+        def root() -> dict[str, str]:
+            return {"service": "disco", "ui": "http://127.0.0.1:5173"}
 
     @app.get("/api/health")
     def health() -> dict[str, object]:
@@ -109,6 +127,7 @@ def create_app() -> FastAPI:
             asked = list(pending.get("asked") or [])
             field = pending.get("field")
             pending_snapshot = pending.get("snapshot") or {}
+            pending_phase = pending.get("phase") or ""
             if field:
                 asked.append(field)
             if body.skip:
@@ -120,17 +139,39 @@ def create_app() -> FastAPI:
                 clarification = None
             else:
                 clarification = body.resume
+            raw_update = None
+        elif body.thread_id and body.raw_input and body.thread_id in _pending:
+            pending = _pending[body.thread_id]
+            if pending.get("phase") == "revision" and is_campaign_revision(body.raw_input):
+                thread_id = body.thread_id
+                user_text = pending["query"]
+                # The snapshot's campaign_inputs already folds in every earlier answer
+                # and revision; replaying the answers would undo the newer revisions.
+                answers = []
+                skipped = list(pending.get("skipped") or [])
+                asked = list(pending.get("asked") or [])
+                pending_snapshot = pending.get("snapshot") or {}
+                pending_phase = "revision"
+                clarification = None
+                raw_update = body.raw_input
+            else:
+                _pending.pop(body.thread_id, None)
+                thread_id = str(uuid.uuid4())
+                user_text, clarification = body.raw_input, None
+                answers, skipped, asked = [], [], []
+                pending_snapshot, pending_phase, raw_update = {}, "", None
         else:
             thread_id = str(uuid.uuid4())
             user_text, clarification = body.raw_input, None
             answers, skipped, asked = [], [], []
-            pending_snapshot = {}
+            pending_snapshot, pending_phase, raw_update = {}, "", None
 
-        ads_only = bool(pending_snapshot) and bool(body.skip or body.resume)
-        snapshot = pending_snapshot if ads_only else {}
+        ads_only = pending_phase == "ads"
+        campaign_only = pending_phase in {"campaign", "revision"}
+        snapshot = pending_snapshot if (ads_only or campaign_only) else {}
 
         def events() -> Iterator[str]:
-            def _store(field: str | None, snap: dict) -> None:
+            def _store(field: str | None, snap: dict, phase: str = "") -> None:
                 _pending[thread_id] = {
                     "query": user_text,
                     "answers": answers,
@@ -138,6 +179,7 @@ def create_app() -> FastAPI:
                     "asked": asked,
                     "field": field,
                     "snapshot": snap,
+                    "phase": phase,
                 }
                 while len(_pending) > _PENDING_MAX:
                     _pending.popitem(last=False)
@@ -168,12 +210,35 @@ def create_app() -> FastAPI:
                     },
                 )
 
+            def _campaign_followup(snap: dict) -> Iterator[str]:
+                result = run_campaign(
+                    snap,
+                    answers=answers,
+                    skipped_fields=skipped,
+                    asked_fields=asked,
+                    raw_update=raw_update,
+                )
+                if result.question_meta:
+                    _store(result.question_meta.get("field"), result.snapshot, "campaign")
+                    yield _clarify(result.question_meta)
+                    return
+                yield _sse("stage", {"stage": "campaign"})
+                yield from _section("campaign", "campaign", result.campaign_text)
+                _store(None, result.snapshot, "revision")
+                yield _done(result)
+
             try:
                 if ads_only:
+                    if body.skip:
+                        yield from _campaign_followup(snapshot)
+                        return
                     yield _sse("stage", {"stage": "creatives"})
                     result = run_ads(snapshot, answers=answers)
                     yield from _section("creatives", "ads", result.ads_text)
-                    yield _done(result)
+                    yield from _campaign_followup({**snapshot, **result.snapshot, "raw_query": user_text})
+                    return
+                if campaign_only:
+                    yield from _campaign_followup({**snapshot, "raw_query": snapshot.get("raw_query") or user_text})
                     return
 
                 yield _sse("stage", {"stage": "understand"})
@@ -200,14 +265,27 @@ def create_app() -> FastAPI:
                     if node == "assemble_result":
                         yield from _section("publishers", "publishers", result.publishers_text)
                         yield from _section("personas", "personas", result.personas_text)
-                        if result.question_meta:
-                            _store(result.question_meta.get("field"), result.snapshot)
-                            yield _clarify(result.question_meta)
+                        if not (result.chosen or []):
+                            yield _done(result)
                             finished = True
                             continue
                         yield _sse("stage", {"stage": "creatives"})
                     if node == "validate_creatives":
                         yield from _section("creatives", "ads", result.ads_text)
+                        if result.question_meta:
+                            _store(result.question_meta.get("field"), result.snapshot, "ads")
+                            yield _clarify(result.question_meta)
+                            finished = True
+                            continue
+                    if node == "campaign_input_analysis" and result.question_meta:
+                        _store(result.question_meta.get("field"), result.snapshot, "campaign")
+                        yield _clarify(result.question_meta)
+                        finished = True
+                        continue
+                    if node == "campaign_llm_strategist":
+                        yield _sse("stage", {"stage": "campaign"})
+                        yield from _section("campaign", "campaign", result.campaign_text)
+                        _store(None, result.snapshot, "revision")
                         yield _done(result)
                         finished = True
                         continue
@@ -219,6 +297,8 @@ def create_app() -> FastAPI:
 
         return StreamingResponse(events(), media_type="text/event-stream")
 
+    if ui is not None:
+        _mount_ui(app, ui)
     return app
 
 

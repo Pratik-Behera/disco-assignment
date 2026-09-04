@@ -20,6 +20,12 @@ Never:
 - Invent audience affinity the catalog did not state (e.g. do not claim a whisky-specific or premium-single-malt audience unless evidence says so).
 - Mention scores, weights, embeddings, BM25, features, or implementation mechanics.
 - Claim confidence the evidence does not support.
+- Write an opener like "Here’s where I’d start" — the caller already frames the reply.
+
+If `recommendations` is empty:
+- Do not produce a ranking write-up or a confident plan.
+- Say this catalog has no shelf for the product. Name the kinds of networks that *are* here (grocery, apparel, pet, home, wellness) only if that is true of the payload.
+- Leave near-miss and recommendation lists empty.
 
 If `status` is `insufficient_signal`:
 - Do not produce a confident ranking write-up.

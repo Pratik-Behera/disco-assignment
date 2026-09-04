@@ -261,3 +261,80 @@ class CreativeVariant(BaseModel):
 
 class CreativeBatch(BaseModel):
     variants: list[CreativeVariant] = Field(default_factory=list)
+
+
+CampaignObjective = Literal["awareness", "traffic", "conversions"]
+FieldSource = Literal["advertiser", "persona", "publisher"]
+
+
+class CampaignInputs(BaseModel):
+    """Advertiser-provided campaign facts only. Missing stays None — never assumed."""
+
+    objective: CampaignObjective | None = None
+    total_budget_usd: float | None = None
+    duration_days: int | None = None
+    performance_goal: str | None = None
+
+    def has_required(self) -> bool:
+        return (
+            self.objective is not None
+            and self.total_budget_usd is not None
+            and self.duration_days is not None
+        )
+
+    def merge(self, other: "CampaignInputs") -> "CampaignInputs":
+        data = self.model_dump()
+        for key, value in other.model_dump().items():
+            if value is not None:
+                data[key] = value
+        return CampaignInputs.model_validate(data)
+
+
+class CampaignTargeting(BaseModel):
+    age_range: str | None = None
+    age_range_source: FieldSource | None = None
+    gender: str | None = None
+    gender_source: FieldSource | None = None
+    geographies: list[str] = Field(default_factory=list)
+    geography_source: FieldSource | None = None
+    interests: list[str] = Field(default_factory=list)
+    behavioral_signals: list[str] = Field(default_factory=list)
+
+
+class PublisherAllocation(BaseModel):
+    publisher_id: str
+    publisher_name: str
+    allocation_pct: float
+    allocation_usd: float
+    match_score: float
+    confidence: float
+
+
+class BidRange(BaseModel):
+    min: float
+    max: float
+
+
+class BidStrategy(BaseModel):
+    type: str
+    starting_bid_range: BidRange
+    basis: Literal["heuristic"] = "heuristic"
+
+
+class CampaignConfig(BaseModel):
+    objective: CampaignObjective
+    total_budget_usd: float
+    duration_days: int
+    daily_budget_usd: float
+    targeting: CampaignTargeting
+    publishers: list[PublisherAllocation] = Field(default_factory=list)
+    bid_strategy: BidStrategy
+    confidence: float = Field(ge=0, le=1)
+    warnings: list[str] = Field(default_factory=list)
+
+    def to_public(self) -> dict:
+        return self.model_dump()
+
+
+class CampaignExplanation(BaseModel):
+    explanation: str
