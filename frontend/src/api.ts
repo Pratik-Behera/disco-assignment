@@ -1,4 +1,4 @@
-import type { ChatReply } from "./types";
+import type { ChatReply, QuestionMeta } from "./types";
 
 export async function fetchExamples(): Promise<string[]> {
   const res = await fetch("/api/examples");
@@ -8,21 +8,44 @@ export async function fetchExamples(): Promise<string[]> {
 
 type StreamHandlers = {
   onStage: (stage: string) => void;
+  onSection: (kind: string) => void;
   onToken: (text: string) => void;
   onClarify: (reply: ChatReply) => void;
   onDone: (reply: ChatReply) => void;
 };
+
+function asMeta(parsed: Record<string, unknown>): QuestionMeta | undefined {
+  if (typeof parsed.question !== "string" || typeof parsed.field !== "string") {
+    return undefined;
+  }
+  return {
+    field: parsed.field,
+    importance: parsed.importance === "required" ? "required" : "useful",
+    question: parsed.question,
+    quick_replies: Array.isArray(parsed.quick_replies)
+      ? parsed.quick_replies.filter((item): item is string => typeof item === "string")
+      : [],
+    allow_free_text: parsed.allow_free_text !== false,
+    allow_skip: parsed.allow_skip === true,
+  };
+}
 
 export async function streamRun(
   rawInput: string,
   threadId: string | undefined,
   resume: string | undefined,
   handlers: StreamHandlers,
+  skip = false,
 ): Promise<void> {
   const res = await fetch("/api/run/stream", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ raw_input: rawInput, thread_id: threadId, resume }),
+    body: JSON.stringify({
+      raw_input: rawInput,
+      thread_id: threadId,
+      resume: skip ? "" : resume,
+      skip,
+    }),
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({ detail: res.statusText }));
@@ -49,18 +72,26 @@ export async function streamRun(
         if (!data) continue;
         const parsed = JSON.parse(data);
         if (event === "stage") handlers.onStage(parsed.stage);
+        if (event === "section") handlers.onSection(parsed.kind);
         if (event === "token") handlers.onToken(parsed.text);
         if (event === "clarify") {
-          handlers.onClarify({ thread_id: parsed.thread_id, text: "", question: parsed.question });
+          handlers.onClarify({
+            thread_id: parsed.thread_id,
+            text: "",
+            question: parsed.question,
+            question_meta: asMeta(parsed),
+          });
         }
         if (event === "done") {
-          handlers.onDone({ thread_id: parsed.thread_id, text: parsed.text });
+          handlers.onDone({
+            thread_id: parsed.thread_id,
+            text: parsed.text,
+          });
         }
         if (event === "error") throw new Error(parsed.detail);
       }
     }
   } finally {
-    // Throwing mid-stream (error event, bad JSON) would otherwise leave the body open.
     void reader.cancel().catch(() => {});
   }
 }

@@ -1,15 +1,25 @@
 import { useEffect, useRef, useState } from "react";
 import { fetchExamples, streamRun } from "./api";
-import type { ChatReply } from "./types";
+import type { ChatReply, QuestionMeta } from "./types";
 
 type ChatMessage =
   | { id: string; role: "user"; text: string }
-  | { id: string; role: "assistant"; text: string; streaming?: boolean; question?: string }
+  | {
+      id: string;
+      role: "assistant";
+      text: string;
+      kind?: string;
+      streaming?: boolean;
+      question?: string;
+      questionMeta?: QuestionMeta;
+    }
   | { id: string; role: "error"; text: string };
 
 const STAGE_COPY: Record<string, string> = {
-  read: "Reading your product…",
-  write: "Writing the recommendation…",
+  understand: "Reading your product…",
+  publishers: "Finding the best publishers…",
+  personas: "Finding shopper fits…",
+  creatives: "Writing ad creatives…",
 };
 
 function nextId(): string {
@@ -34,53 +44,67 @@ export default function App() {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, busy, stage]);
 
-  function patchAssistant(partial: Partial<Extract<ChatMessage, { role: "assistant" }>>) {
-    setMessages((prev) => {
-      const last = prev[prev.length - 1];
-      if (last?.role === "assistant") {
-        return [...prev.slice(0, -1), { ...last, ...partial }];
-      }
-      return [...prev, { id: nextId(), role: "assistant", text: "", ...partial }];
-    });
-  }
-
-  async function onSubmit(text: string) {
+  async function onSubmit(text: string, skip = false) {
     const query = text.trim();
-    if (!query || busy) return;
+    if ((!query && !skip) || busy) return;
     setInput("");
     setBusy(true);
-    setStage("read");
     const isResume = awaiting;
-    const resume = isResume ? query : undefined;
+    setStage(isResume ? "creatives" : "understand");
     setAwaiting(false);
-    setMessages((prev) => [...prev, { id: nextId(), role: "user", text: query }]);
+    setMessages((prev) => [...prev, { id: nextId(), role: "user", text: skip ? "Skip" : query }]);
     try {
-      // Fresh advertiser query = new thread. Only a clarify answer reuses threadId.
-      await streamRun(isResume ? "" : query, isResume ? threadId : undefined, resume, {
-        onStage: setStage,
-        onToken: (token) => {
-          setStage(null);
-          setMessages((prev) => {
-            const last = prev[prev.length - 1];
-            if (last?.role === "assistant") {
-              return [...prev.slice(0, -1), { ...last, text: last.text + token, streaming: true }];
-            }
-            return [...prev, { id: nextId(), role: "assistant", text: token, streaming: true }];
-          });
+      await streamRun(
+        isResume ? "" : query,
+        isResume ? threadId : undefined,
+        isResume && !skip ? query : undefined,
+        {
+          onStage: setStage,
+          onSection: (kind: string) => {
+            setMessages((prev) => {
+              const closed = prev.map((m) =>
+                m.role === "assistant" && m.streaming ? { ...m, streaming: false } : m,
+              );
+              return [
+                ...closed,
+                { id: nextId(), role: "assistant", text: "", kind, streaming: true },
+              ];
+            });
+          },
+          onToken: (token) => {
+            setMessages((prev) => {
+              const last = prev[prev.length - 1];
+              if (last?.role === "assistant") {
+                return [...prev.slice(0, -1), { ...last, text: last.text + token, streaming: true }];
+              }
+              return [...prev, { id: nextId(), role: "assistant", text: token, streaming: true }];
+            });
+          },
+          onClarify: (reply: ChatReply) => {
+            setThreadId(reply.thread_id);
+            setAwaiting(true);
+            setMessages((prev) => [
+              ...prev.map((m) => (m.role === "assistant" && m.streaming ? { ...m, streaming: false } : m)),
+              {
+                id: nextId(),
+                role: "assistant",
+                text: reply.question ?? "",
+                question: reply.question,
+                questionMeta: reply.question_meta,
+              },
+            ]);
+          },
+          onDone: () => {
+            setThreadId(undefined);
+            setMessages((prev) =>
+              prev.map((m) => (m.role === "assistant" && m.streaming ? { ...m, streaming: false } : m)),
+            );
+          },
         },
-        onClarify: (reply: ChatReply) => {
-          setThreadId(reply.thread_id);
-          setAwaiting(true);
-          patchAssistant({ text: reply.question ?? "", question: reply.question, streaming: false });
-        },
-        onDone: (reply: ChatReply) => {
-          setThreadId(undefined);
-          patchAssistant({ text: reply.text, streaming: false });
-        },
-      });
+        skip,
+      );
     } catch (err) {
       setMessages((prev) => [
-        // Stop the caret blinking under a reply that died mid-stream.
         ...prev.map((m) => (m.role === "assistant" && m.streaming ? { ...m, streaming: false } : m)),
         { id: nextId(), role: "error", text: err instanceof Error ? err.message : "Run failed" },
       ]);
@@ -92,7 +116,7 @@ export default function App() {
 
   const empty = messages.length === 0 && !busy;
   const last = messages[messages.length - 1];
-  const showDots = busy && last?.role !== "assistant";
+  const showDots = busy;
 
   return (
     <div className="flex h-screen flex-col bg-[#212121] text-[#ececec]">
@@ -105,7 +129,8 @@ export default function App() {
           <div className="mx-auto flex min-h-full max-w-2xl flex-col items-center justify-center px-4 py-16 text-center">
             <h1 className="text-3xl font-semibold tracking-tight">Where should this product run?</h1>
             <p className="mt-3 max-w-md text-sm text-[#b4b4b4]">
-              Describe the product in one sentence. I’ll recommend publishers and explain why.
+              Describe the product in one sentence. I’ll recommend publishers, shoppers, and a few ad
+              angles.
             </p>
             <ul className="mt-10 grid w-full gap-2 sm:grid-cols-2">
               {examples.slice(0, 6).map((line) => (
@@ -126,7 +151,15 @@ export default function App() {
         {!empty && (
           <div className="mx-auto w-full max-w-2xl px-4 py-6">
             {messages.map((message) => (
-              <MessageBubble key={message.id} message={message} />
+              <MessageBubble
+                key={message.id}
+                message={message}
+                interactive={
+                  awaiting && !busy && message.role === "assistant" && message.id === last?.id
+                }
+                onPick={(label) => void onSubmit(label)}
+                onSkip={() => void onSubmit("Skip", true)}
+              />
             ))}
             {showDots && (
               <div className="mt-6 flex items-center gap-3 text-sm text-[#8f8f8f]" role="status" aria-live="polite">
@@ -155,7 +188,7 @@ export default function App() {
             rows={1}
             className="max-h-40 min-h-10 flex-1 resize-none bg-transparent py-2 text-sm outline-none placeholder:text-[#8f8f8f]"
             aria-label={awaiting ? "Answer the question" : "Describe the product"}
-            placeholder={awaiting ? "Answer the question…" : "Describe the product…"}
+            placeholder={awaiting ? "Answer in your own words…" : "Describe the product…"}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => {
@@ -179,7 +212,17 @@ export default function App() {
   );
 }
 
-function MessageBubble({ message }: { message: ChatMessage }) {
+function MessageBubble({
+  message,
+  interactive,
+  onPick,
+  onSkip,
+}: {
+  message: ChatMessage;
+  interactive?: boolean;
+  onPick?: (label: string) => void;
+  onSkip?: () => void;
+}) {
   if (message.role === "user") {
     return (
       <div className="mb-6 flex justify-end">
@@ -191,12 +234,13 @@ function MessageBubble({ message }: { message: ChatMessage }) {
     return <p className="mb-6 text-sm text-red-400">{message.text}</p>;
   }
   const lines = message.text.split("\n");
+  const meta = message.questionMeta;
   return (
     <div className="fade-in mb-6 max-w-[90%] text-sm leading-5 text-[#ececec]">
       {lines.map((line, i) => {
         const last = i === lines.length - 1;
         const extra =
-          line === "Near misses" || line.startsWith("Remaining ")
+          line === "Near misses" || line === "Shoppers this fits" || line === "Ads" || line.startsWith("Remaining ") || line.startsWith("I left the rest")
             ? " mt-2 text-[#b4b4b4]"
             : line.startsWith("• ")
               ? " pl-2"
@@ -210,6 +254,29 @@ function MessageBubble({ message }: { message: ChatMessage }) {
           </div>
         );
       })}
+      {interactive && meta && onPick && (
+        <div className="mt-3 flex flex-wrap gap-2" role="group" aria-label="Suggested answers">
+          {meta.quick_replies.map((label) => (
+            <button
+              key={label}
+              type="button"
+              className="rounded-full border border-white/15 px-3 py-1.5 text-xs text-[#d5d5d5] hover:bg-white/10"
+              onClick={() => onPick(label)}
+            >
+              {label}
+            </button>
+          ))}
+          {meta.allow_skip && onSkip ? (
+            <button
+              type="button"
+              className="rounded-full border border-white/10 px-3 py-1.5 text-xs text-[#8f8f8f] hover:bg-white/5"
+              onClick={onSkip}
+            >
+              Skip
+            </button>
+          ) : null}
+        </div>
+      )}
     </div>
   );
 }
