@@ -134,7 +134,7 @@ export default function App() {
   return (
     <div className="flex h-screen flex-col bg-[#212121] text-[#ececec]">
       <header className="flex h-14 shrink-0 items-center justify-center border-b border-white/5">
-        <p className="text-sm font-medium">Disco</p>
+        <p className="text-lg font-semibold tracking-tight">Campaign builder</p>
       </header>
 
       <div className="flex-1 overflow-y-auto">
