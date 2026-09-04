@@ -2,24 +2,14 @@
 
 Canonical next-agent context: **[docs/HANDOFF.md](./HANDOFF.md)**.
 
-Updated: 2026-09-04.
+Updated: 2026-09-04. HEAD `148efcd` on `main`. Phase 3 + UX uncommitted (revision merge, labeled tiles).
 
-Phase 2 sits on Phase 1 ranking. SSE entry is `app.agents.iter_run()`; tests use `run()`. Matching is not in `agents.py`.
+SSE entry is `app.agents.iter_run()`; tests use `run()`. Ads resume uses `run_ads` then `run_campaign` (`prefer_matches` uses only `target_audience`). Matching is not in `agents.py`. Python allocates/validates; LLM explains only.
 
-Pipeline: parse → missing halt vs parallel `rank_publishers` ║ `match_personas` → assemble (`reason_about_matches`) → optional ads. SSE reveals publishers, then personas, then chips or ads.
+Pipeline: parse → missing halt vs parallel `rank_publishers` ║ `match_personas` → assemble (gap may end) → ads → optional shopper rewrite → campaign inputs → build → strategist.
 
-Required unanswered question skips rank, copy, and ads. Skip on required via API yields no recs if there is still no product and no category.
+Revision: `run_campaign` seeds from query, snapshot wins, `answers=[]`, `raw_update` last. Budget-only extract via `parse_budget_answer`. `_pending` is in-memory; `--reload` / process restart → 400.
 
-SSE exhausts `iter_run` with a `finished` flag after clarify/done so LangSmith does not log `GeneratorExit` traces.
+Tests: `cd backend && .venv/bin/pytest -q` — **115 passed, 1 skipped**. Frontend `npm run build` exit 0. UI: labeled shopper/ad sections, catalog names on tiles, `stageForResume`.
 
-Embed cache: `backend/.cache/publisher_embeddings.json` (override `DISCO_EMBED_CACHE`).
-
-Dead this loop (gone): `GraphState.question`, `done.followup`, `clarification_question`, `MissingItem`.
-
-Personas loaded (`data.py::load_personas()`, 10 rows). Campaign config is not built.
-
-Tests: `cd backend && .venv/bin/pytest -q` — **76 passed**. Frontend `npm run build` exit 0.
-
-User style: implement in-chat. Do not commit unless asked. Do not print `.env` secrets.
-
-Next: wait for the user. Working tree is uncommitted. `git-commit-agent` proposes only.
+Next: wait for the user. Do not commit unless asked. Do not start DSP/auction.

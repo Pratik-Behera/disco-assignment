@@ -4,6 +4,22 @@ Verified record of repository changes. Updated by `change-tracker-agent` from gi
 
 ## [Unreleased]
 
+- `_parse_duration` treats `0 days`/`0 weeks`/`0 months` as missing (None when computed days ≤ 0, same as until-month), so the duration question is re-asked instead of `build_campaign_config` dividing by zero (`campaign.py`, `test_zero_duration_is_missing_not_a_crash`).
+- `_gender_fit` classifies female-first (`women`/`woman` → female, `men`/`man` → male) so `female` is not a substring hit on `male`; balanced on either side is 0.7, not opposite 0.2 (`personas.py`, `test_gender_fit_does_not_treat_female_as_male`).
+- Budget chips are a fixed demo ladder `$100` / `$500` / `$2,000`. Typed answers (`500`, `$200`, `200 dollars`) parse via `parse_budget_answer`; `$40 candles` is still not a campaign budget.
+- `extract_campaign_inputs` uses the loose parser on budget-only edits so `$100`/`$500` revisions apply; `run_campaign` merge no longer lets the original query overwrite later edits; revision SSE does not replay stale answers; `run_ads` only uses `target_audience` for `prefer_matches` (`campaign.py`, `agents.py`, `main.py`).
+- Persona tiles show the catalog name plus paraphrase and why; ads use the catalog name as the pill. Sections are labeled “Shoppers I’d write for” and “Ad creatives”. `stageForResume` shows “Drafting the campaign plan…” after campaign answers, not ads copy (`App.tsx`).
+- “Something else” on the product question is treated as “none of these chips,” not a product to rank (`missing.py`, `graph.py`).
+- Ads stream before the shopper question. Skip after ads goes to campaign without rewriting; a paraphrase chip still calls `run_ads` (`graph.py`, `main.py`).
+- Shopper chips use `PERSONA_SPEAK` paraphrases mapped to `persona_id`, not catalog names (`personas.py`, `missing.py`).
+- Ad copy is tagline-shaped (`render_ads`, `prompts/ad_creative.md`). UI renders markdown plus a dedicated ads layout; loading dots hide while a bubble is streaming (`App.tsx`).
+- Backend tests **115 passed, 1 skipped**; frontend `npm run build` exit 0.
+- Phase 3 campaign config: after `validate_creatives`, graph runs `campaign_input_analysis` → `build_campaign` → `campaign_llm_strategist`. Code extracts objective/budget/duration (never assumed), targeting, allocation, heuristic bids, and validates; the strategist only explains (`campaign.py`, `graph.py`, `prompts/campaign_strategist.md`).
+- `run_campaign` resumes campaign questions and revisions without re-ranking; SSE `_pending.phase` is `ads` / `campaign` / `revision`; UI keeps `thread_id` after `done` (`agents.py`, `main.py`, `App.tsx`).
+- Revisions (`$15k`, `60 days`, objective chips) recalc daily budget / dollars / bid. `is_campaign_revision` is false for product copy; objective is not taken from “website” or “traffic” in product sentences; allocation water-fills so `n>=2` stays in 8–55% (`campaign.py`).
+- `$10,000 over 30 days` is not treated as a product price (`understand.py`).
+- Dropped `CampaignInputs.geography`, the geography campaign-answer branch, and unused `FieldSource` literals (`FieldSource` is `advertiser` | `persona` | `publisher`).
+- Added `test_phase3.py` (complete inputs, required/useful questions, duration parse, allocation guardrails, revision detector). Backend tests **102 passed, 1 skipped**; frontend `npm run build` exit 0.
 - OpenAI publisher embeddings persist in `backend/.cache/publisher_embeddings.json` (override `DISCO_EMBED_CACHE`); reload no longer re-embeds all 20 rows (`retrieval.py`, `test_retrieval.py`).
 - Persona list drops weak non-overlap names; gift/gifting boosts The Gifter; audience question skips when gifts/gifting already stated (`personas.py`, `missing.py`).
 - Chat status line follows the live stage while work is in flight; assistant replies are plain text, not cards (`App.tsx`).
