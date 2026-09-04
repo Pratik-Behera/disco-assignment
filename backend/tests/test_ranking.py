@@ -8,7 +8,13 @@ from app.ranking import (
     select_recommendations,
 )
 from app.retrieval import HashEmbedder, InMemoryPublisherRetriever
-from app.schemas import AdvertiserProfile, AudienceHint
+from app.schemas import (
+    AdvertiserProfile,
+    AudienceHint,
+    FeatureEvidence,
+    FeatureScores,
+    ScoredPublisher,
+)
 from app.understand import extract_heuristic, extract_profile, validate_profile
 
 
@@ -196,6 +202,32 @@ def test_select_recommendations_empty_catalog_gap() -> None:
     assert recs == []
     assert near == []
     assert stats.near_miss == 0
+
+
+def test_catalog_gap_fallback_skips_category_mismatch() -> None:
+    pubs = {p.name: p for p in catalog()}
+    mismatch = ScoredPublisher(
+        publisher=pubs["Daily Form"],
+        score=0.91,
+        confidence=0.8,
+        match_strength="strong",
+        features=FeatureScores(penalty_reasons=["category_mismatch"]),
+        evidence=FeatureEvidence(),
+        eligible=False,
+    )
+    least_wrong = ScoredPublisher(
+        publisher=pubs["Swiftcart"],
+        score=0.20,
+        confidence=0.3,
+        match_strength="moderate",
+        features=FeatureScores(),
+        evidence=FeatureEvidence(),
+        eligible=False,
+    )
+    recs, _, _ = select_recommendations([mismatch, least_wrong], [])
+    assert recs
+    assert recs[0].publisher_id == pubs["Swiftcart"].id
+    assert recs[0].match_strength == "weak"
 
 
 def test_idk_does_not_invent_a_product() -> None:

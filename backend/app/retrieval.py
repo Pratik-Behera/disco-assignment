@@ -11,14 +11,19 @@ should keep consuming PublisherCandidate the same way.
 from __future__ import annotations
 
 import hashlib
+import json
+import logging
 import math
+import os
 import re
+from pathlib import Path
 from typing import Protocol
 
 from app.schemas import AdvertiserProfile, FeatureScores, Publisher, PublisherCandidate
 
 TOKEN = re.compile(r"[a-z0-9]+")
 CANDIDATE_POOL_SIZE = 10
+log = logging.getLogger(__name__)
 
 # Retrieval-only mix. Final business weights live in ranking.py.
 _RETRIEVAL_WEIGHTS = {
@@ -216,6 +221,57 @@ def _retrieval_score(features: FeatureScores) -> float:
     return max(0.0, min(1.0, total))
 
 
+def _embed_cache_path() -> Path:
+    override = os.environ.get("DISCO_EMBED_CACHE")
+    if override:
+        return Path(override)
+    return Path(__file__).resolve().parents[1] / ".cache" / "publisher_embeddings.json"
+
+
+def _text_hash(text: str) -> str:
+    return hashlib.sha256(text.encode()).hexdigest()[:16]
+
+
+def _embedding_model() -> str:
+    from app.llm import embedding_model
+
+    return embedding_model()
+
+
+def _read_embed_cache() -> tuple[str, dict[str, dict]]:
+    path = _embed_cache_path()
+    try:
+        raw = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError):
+        return "", {}
+    if not isinstance(raw, dict):
+        return "", {}
+    model = raw.get("model") if isinstance(raw.get("model"), str) else ""
+    items = raw.get("items")
+    if not isinstance(items, dict):
+        return model, {}
+    clean: dict[str, dict] = {}
+    for pub_id, row in items.items():
+        if not isinstance(row, dict):
+            continue
+        digest = row.get("hash")
+        vector = row.get("vector")
+        if isinstance(digest, str) and isinstance(vector, list) and vector and all(
+            isinstance(x, (int, float)) for x in vector
+        ):
+            clean[str(pub_id)] = {"hash": digest, "vector": [float(x) for x in vector]}
+    return model, clean
+
+
+def _write_embed_cache(model: str, items: dict[str, dict]) -> None:
+    path = _embed_cache_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {"model": model, "items": items}
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(payload))
+    tmp.replace(path)
+
+
 class InMemoryPublisherRetriever:
     def __init__(
         self,
@@ -227,10 +283,58 @@ class InMemoryPublisherRetriever:
         self.embedder = embedder or HashEmbedder()
         self.pool_size = pool_size
         self._pub_vectors: list[list[float]] | None = None
+        if isinstance(self.embedder, OpenAIEmbedder):
+            self._load_disk_vectors()
+
+    def _load_disk_vectors(self) -> None:
+        """Fill RAM from disk only. Never calls the embedding API."""
+        if not self.publishers:
+            self._pub_vectors = []
+            return
+        model, items = _read_embed_cache()
+        if model != _embedding_model():
+            return
+        vectors: list[list[float]] = []
+        for publisher in self.publishers:
+            digest = _text_hash(publisher.search_text())
+            row = items.get(publisher.id)
+            if not row or row["hash"] != digest:
+                return
+            vectors.append(row["vector"])
+        self._pub_vectors = vectors
 
     def _vectors(self) -> list[list[float]]:
-        if self._pub_vectors is None:
-            self._pub_vectors = self.embedder.embed([p.search_text() for p in self.publishers])
+        if self._pub_vectors is not None:
+            return self._pub_vectors
+        texts = [p.search_text() for p in self.publishers]
+        if not isinstance(self.embedder, OpenAIEmbedder):
+            self._pub_vectors = self.embedder.embed(texts)
+            return self._pub_vectors
+        model = _embedding_model()
+        disk_model, items = _read_embed_cache()
+        if disk_model != model:
+            items = {}
+        vectors: list[list[float] | None] = [None] * len(self.publishers)
+        missing_idx: list[int] = []
+        missing_texts: list[str] = []
+        for i, (publisher, text) in enumerate(zip(self.publishers, texts)):
+            cached = items.get(publisher.id)
+            if cached and cached["hash"] == _text_hash(text):
+                vectors[i] = cached["vector"]
+            else:
+                missing_idx.append(i)
+                missing_texts.append(text)
+        if missing_texts:
+            fresh = self.embedder.embed(missing_texts)
+            for i, vec in zip(missing_idx, fresh):
+                vectors[i] = vec
+                items[self.publishers[i].id] = {"hash": _text_hash(texts[i]), "vector": vec}
+            keep = {p.id for p in self.publishers}
+            try:
+                _write_embed_cache(model, {k: v for k, v in items.items() if k in keep})
+            except OSError:
+                log.warning("could not write publisher embed cache", exc_info=True)
+        self._pub_vectors = [vec or [0.0] for vec in vectors]
         return self._pub_vectors
 
     def retrieve_all(self, profile: AdvertiserProfile) -> list[PublisherCandidate]:

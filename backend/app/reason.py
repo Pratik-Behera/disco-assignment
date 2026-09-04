@@ -74,7 +74,10 @@ def reason_heuristic(
         NearMissReason(
             publisher_id=row.publisher.id,
             publisher_name=row.publisher.name,
-            explanation=f"{row.publisher.name} — related {row.publisher.category} shelf",
+            explanation=(
+                f"{row.publisher.name} — close on the {row.publisher.category} shelf, "
+                "but not a stronger fit than the names above."
+            ),
         )
         for row in near_misses
     ]
@@ -125,7 +128,7 @@ def reason_about_matches(
             json.dumps(payload, indent=2),
             ReasoningResult,
         )
-        result.remainder = exclusions.remainder
+        result.remainder = (result.remainder or "").strip() or fallback.remainder
         return result
     except Exception:
         log.warning("LLM reasoning failed; falling back to heuristic copy", exc_info=True)
@@ -158,9 +161,6 @@ def render_text(
         if caveat.startswith("No advertiser audience"):
             caveat = ""
         lines.append(headline)
-        lines.append(
-            f"{rec.score:.2f} score · {rec.confidence:.2f} confidence · {rec.match_strength}"
-        )
         lines.append(f"• {why}")
         if caveat:
             lines.append(f"• Caveat: {caveat}")

@@ -225,3 +225,6 @@ CLAUDE.md
 frontend/node_modules/
 frontend/dist/
 frontend/tsconfig.tsbuildinfo
+
+# Generated OpenAI publisher vectors (backend/.cache/)
+backend/.cache/

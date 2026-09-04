@@ -305,11 +305,3 @@ def validate_profile(profile: AdvertiserProfile) -> AdvertiserProfile:
         data.confidence = min(data.confidence, INSUFFICIENT_PROFILE_CONFIDENCE - 0.05)
     data.confidence = max(0.0, min(1.0, data.confidence))
     return data
-
-
-def clarification_question(profile: AdvertiserProfile) -> str:
-    if profile.ambiguities:
-        first = profile.ambiguities[0]
-        if first.endswith("?"):
-            return first
-    return "What product or product family are you advertising?"

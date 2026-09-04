@@ -39,6 +39,10 @@ def chat_model() -> str:
     return os.environ.get("OPENAI_MODEL") or "gpt-4o-mini"
 
 
+def embedding_model() -> str:
+    return os.environ.get("OPENAI_EMBEDDING_MODEL") or "text-embedding-3-small"
+
+
 def parse_structured(system: str, user: str, schema: type[T]) -> T:
     completion = _client().chat.completions.parse(
         model=chat_model(),
@@ -47,7 +51,6 @@ def parse_structured(system: str, user: str, schema: type[T]) -> T:
             {"role": "user", "content": user},
         ],
         response_format=schema,
-        temperature=0,
     )
     parsed = completion.choices[0].message.parsed
     if parsed is None:
@@ -59,7 +62,7 @@ def embed_texts(texts: list[str]) -> list[list[float]]:
     if not texts:
         return []
     response = _client().embeddings.create(
-        model=os.environ.get("OPENAI_EMBEDDING_MODEL") or "text-embedding-3-small",
+        model=embedding_model(),
         input=texts,
     )
     by_index = {item.index: item.embedding for item in response.data}

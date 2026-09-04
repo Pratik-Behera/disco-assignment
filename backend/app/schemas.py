@@ -166,3 +166,98 @@ class ReasoningResult(BaseModel):
     near_misses: list[NearMissReason] = Field(default_factory=list)
     remainder: str = ""
     clarification: str | None = None
+
+
+class MissingQuestion(BaseModel):
+    field: str
+    importance: Literal["required", "useful"]
+    question: str
+    quick_replies: list[str] = Field(default_factory=list)
+    allow_free_text: bool = True
+    allow_skip: bool = True
+
+    def to_public(self) -> dict:
+        return {
+            "field": self.field,
+            "importance": self.importance,
+            "question": self.question,
+            "quick_replies": self.quick_replies,
+            "allow_free_text": self.allow_free_text,
+            "allow_skip": self.allow_skip,
+        }
+
+
+class ShopperPersona(BaseModel):
+    id: str
+    name: str
+    age_range: str = ""
+    gender_skew: str = ""
+    description: str = ""
+    category_affinities: list[str] = Field(default_factory=list)
+    price_sensitivity: str = ""
+    messaging_preferences: list[str] = Field(default_factory=list)
+    disinterested_in: list[str] = Field(default_factory=list)
+    typical_aov_usd: float = 0.0
+
+    @classmethod
+    def from_raw(cls, row: dict) -> ShopperPersona:
+        return cls.model_validate(row)
+
+
+class PersonaMatch(BaseModel):
+    persona_id: str
+    persona_name: str
+    score: float
+    confidence: float
+    match_signals: list[str] = Field(default_factory=list)
+    negative_signals: list[str] = Field(default_factory=list)
+
+    def to_public(self) -> dict:
+        return {
+            "persona_id": self.persona_id,
+            "persona_name": self.persona_name,
+            "score": round(self.score, 2),
+            "confidence": round(self.confidence, 2),
+            "match_signals": self.match_signals,
+            "negative_signals": self.negative_signals,
+        }
+
+
+class PublisherContext(BaseModel):
+    publisher_id: str
+    publisher_name: str
+    category: str
+    subcategories: list[str] = Field(default_factory=list)
+    audience: PublisherAudience = Field(default_factory=PublisherAudience)
+    avg_order_value_usd: float = 0.0
+    monthly_impressions: int = 0
+    notes: str = ""
+
+    @classmethod
+    def from_publisher(cls, publisher: Publisher) -> PublisherContext:
+        return cls(
+            publisher_id=publisher.id,
+            publisher_name=publisher.name,
+            category=publisher.category,
+            subcategories=publisher.subcategories,
+            audience=publisher.audience,
+            avg_order_value_usd=publisher.avg_order_value_usd,
+            monthly_impressions=publisher.monthly_impressions,
+            notes=publisher.notes,
+        )
+
+
+class CreativeVariant(BaseModel):
+    angle: str
+    headline: str
+    body: str
+    cta: str
+    publisher_id: str = ""
+    persona_id: str = ""
+
+    def to_public(self) -> dict:
+        return self.model_dump()
+
+
+class CreativeBatch(BaseModel):
+    variants: list[CreativeVariant] = Field(default_factory=list)

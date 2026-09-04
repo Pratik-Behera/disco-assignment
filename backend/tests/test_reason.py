@@ -56,10 +56,10 @@ def test_render_text_compact_copy_remainder_and_near_miss_format() -> None:
             NearMissReason(
                 publisher_id="pub_popsip",
                 publisher_name="Pop & Sip",
-                explanation="Pop & Sip — related drinks shelf",
+                explanation="Pop & Sip — close on the drinks shelf, but not a stronger fit than the names above.",
             )
         ],
-        remainder="Remaining publishers: 12 out of topic, 6 weak/indirect, 1 near miss.",
+        remainder="I left the rest of the catalog out — 12 are a different category, 6 are only a weak or indirect match.",
     )
     text = render_text(profile, [rec], reasoning, "ok")
     lines = text.splitlines()
@@ -67,8 +67,8 @@ def test_render_text_compact_copy_remainder_and_near_miss_format() -> None:
     assert all(line.strip() for line in lines)
     assert "• Related shelf signal on Swiftcart" in text
     assert "• Caveat: No assortment or audience listed for single malt whisky." in text
-    assert "• Pop & Sip — related drinks shelf" in text
-    assert lines[-1] == "Remaining publishers: 12 out of topic, 6 weak/indirect, 1 near miss."
+    assert "• Pop & Sip — close on the drinks shelf, but not a stronger fit than the names above." in text
+    assert lines[-1] == "I left the rest of the catalog out — 12 are a different category, 6 are only a weak or indirect match."
     assert text.lower().count("no assortment") == 1
 
 
@@ -91,7 +91,7 @@ def test_render_text_drops_no_advertiser_audience_caveat() -> None:
                 caveat="No advertiser audience was stated. Publisher audience is unused.",
             )
         ],
-        remainder="Remaining publishers: 10 out of topic, 8 weak/indirect, 0 near miss.",
+        remainder="I left the rest of the catalog out — 10 are a different category, 8 are only a weak or indirect match.",
     )
     text = render_text(profile, [rec], reasoning, "ok")
     assert "No advertiser audience" not in text
@@ -99,7 +99,7 @@ def test_render_text_drops_no_advertiser_audience_caveat() -> None:
     assert "• Direct pet food overlap" in text
 
 
-def test_reason_heuristic_near_miss_is_related_category_shelf() -> None:
+def test_reason_heuristic_near_miss_explains_why_not_chosen() -> None:
     profile = AdvertiserProfile(raw_query="single malts", product="single malt whisky", confidence=0.85)
     rec = _rec()
     miss = ScoredPublisher(
@@ -114,11 +114,13 @@ def test_reason_heuristic_near_miss_is_related_category_shelf() -> None:
         profile,
         [rec],
         [miss],
-        ExclusionStats(remainder="Remaining publishers: 12 out of topic, 6 weak/indirect, 1 near miss."),
+        ExclusionStats(remainder="I left the rest of the catalog out — 12 are a different category, 6 are only a weak or indirect match."),
         "ok",
     )
-    assert result.near_misses[0].explanation == "Pop & Sip — related drinks shelf"
+    assert result.near_misses[0].explanation == (
+        "Pop & Sip — close on the drinks shelf, but not a stronger fit than the names above."
+    )
     assert "No assortment" not in result.near_misses[0].explanation
     text = render_text(profile, [rec], result, "ok")
-    assert "• Pop & Sip — related drinks shelf" in text
+    assert "• Pop & Sip — close on the drinks shelf, but not a stronger fit than the names above." in text
     assert text.lower().count("no assortment") == 1

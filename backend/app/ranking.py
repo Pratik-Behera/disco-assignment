@@ -375,8 +375,8 @@ def select_recommendations(
         weak_indirect=weak,
         near_miss=len(near),
         remainder=(
-            f"Remaining publishers: {out_of_topic} out of topic, "
-            f"{weak} weak/indirect, {len(near)} near miss."
+            f"I left the rest of the catalog out — {out_of_topic} are a different category, "
+            f"{weak} are only a weak or indirect match."
         ),
     )
     return [_to_recommendation(row) for row in chosen_rows], near, stats
