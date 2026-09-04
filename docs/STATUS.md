@@ -4,10 +4,22 @@ Canonical next-agent context: **[docs/HANDOFF.md](./HANDOFF.md)**.
 
 Updated: 2026-09-04.
 
-Phase 1 publisher recommendation is shipped. Entry is `app.agents.run()` → LangGraph in `graph.py` → existing SSE in `main.py`. Do not implement matching in `agents.py`.
+Phase 2 sits on Phase 1 ranking. SSE entry is `app.agents.iter_run()`; tests use `run()`. Matching is not in `agents.py`.
 
-Pipeline: query → understand (LLM or heuristic) → `retrieve_all()` + `pool_size` slice → deterministic rank (`score` ≠ `confidence`) → reason (copy only).
+Pipeline: parse → missing halt vs parallel `rank_publishers` ║ `match_personas` → assemble (`reason_about_matches`) → optional ads. SSE reveals publishers, then personas, then chips or ads.
 
-Tests: `cd backend && .venv/bin/pytest -q` — **45 passed** (includes `test_reason.py`). Chat reply is compact bullets from `render_text()`; `App.tsx` renders each line (not `whitespace-pre-wrap`). Frontend `npm run build` exit 0.
+Required unanswered question skips rank, copy, and ads. Skip on required via API yields no recs if there is still no product and no category.
 
-Personas (`shopper_personas.json`) stay on disk. Do not start them unless the user asks. Do not commit unless they ask. Do not spawn orc unless asked.
+SSE exhausts `iter_run` with a `finished` flag after clarify/done so LangSmith does not log `GeneratorExit` traces.
+
+Embed cache: `backend/.cache/publisher_embeddings.json` (override `DISCO_EMBED_CACHE`).
+
+Dead this loop (gone): `GraphState.question`, `done.followup`, `clarification_question`, `MissingItem`.
+
+Personas loaded (`data.py::load_personas()`, 10 rows). Campaign config is not built.
+
+Tests: `cd backend && .venv/bin/pytest -q` — **76 passed**. Frontend `npm run build` exit 0.
+
+User style: implement in-chat. Do not commit unless asked. Do not print `.env` secrets.
+
+Next: wait for the user. Working tree is uncommitted. `git-commit-agent` proposes only.
