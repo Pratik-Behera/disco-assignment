@@ -1,0 +1,16 @@
+.git
+.cursor
+**/.venv
+**/.env
+**/__pycache__
+**/.pytest_cache
+**/.cache
+frontend/node_modules
+frontend/dist
+backend/.venv
+backend/.cache
+backend/.env
+backend/.pytest_cache
+disco-takehome-candidate
+docs
+*.egg-info
